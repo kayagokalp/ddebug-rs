@@ -1,3 +1,4 @@
-fn main() {
-    println!("Hello, world!");
-}
+mod graph;
+mod parser;
+
+fn main() {}
