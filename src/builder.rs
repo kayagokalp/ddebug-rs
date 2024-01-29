@@ -79,10 +79,8 @@ impl<'a> CodeBuilder<'a> {
     pub fn collect_errors(&'a self) -> anyhow::Result<BuildErros> {
         match self {
             CodeBuilder::Path(src_code_path) => {
-                println!("here");
                 let build_output = execute_cargo_check_and_grep(src_code_path)?;
                 dbg!(build_output.clone());
-                println!("here");
                 //let build_output =  String::from_utf8(build_output.stderr)?;
                 // TODO: IMPLEMENT THIS
                 // 1.Check if source code path is a cargo project.
@@ -162,7 +160,6 @@ error: could not compile `test_project` (bin "test_project") due to previous err
             .join("test")
             .join("data")
             .join("test_project");
-        println!("project_dir {project_dir:?}");
         let code_builder = CodeBuilder::Path(&project_dir);
 
         let errors = code_builder.collect_errors().unwrap();
