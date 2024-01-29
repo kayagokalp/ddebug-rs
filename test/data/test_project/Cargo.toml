@@ -1,0 +1,6 @@
+[package]
+name = "test_project"
+version = "0.0.0"
+0edition = "2021"
+
+[dependencies]

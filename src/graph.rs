@@ -246,7 +246,7 @@ fn test_fn() {
 
         let graph = graph_builder.syntax_tree;
         // root->item->item_fn->block->local_stmt->expr_assign
-        //                                       |->expr_array
+        //                          |->expr_array
         assert_eq!(graph.graph.node_count(), 7);
 
         let leaf_node_types = leaf_nodes(&parsed_ast);
