@@ -12,7 +12,7 @@ impl std::fmt::Debug for AstNode<'_> {
             Self::Block(_) => f.write_str("block"),
             Self::LocalStmt(_) => f.write_str("loc_stmt"),
             Self::ExprArray(_) => f.write_str("expr_array"),
-            Self::ExprAssign(_) => f.write_str("expr_array"),
+            Self::ExprAssign(_) => f.write_str("expr_assign"),
             Self::ExprLet(_) => f.write_str("expr_let"),
         }
     }
@@ -20,13 +20,18 @@ impl std::fmt::Debug for AstNode<'_> {
 
 // Define a struct to represent the syntax tree
 #[derive(Debug)]
-struct SyntaxTree<'a> {
+pub struct SyntaxTree<'a> {
     graph: StableDiGraph<AstNode<'a>, ()>,
 }
 
+impl<'a> AsRef<StableDiGraph<AstNode<'a>, ()>> for SyntaxTree<'a> {
+    fn as_ref(&self) -> &StableDiGraph<AstNode<'a>, ()> {
+        &self.graph
+    }
+}
 impl<'a> SyntaxTree<'a> {
     // Constructor function to create a new SyntaxTree
-    fn new() -> Self {
+    pub fn new() -> Self {
         SyntaxTree {
             graph: StableDiGraph::new(),
         }
@@ -44,7 +49,7 @@ impl<'a> SyntaxTree<'a> {
 }
 
 // Custom visitor to traverse the syntax tree and build the graph
-struct GraphBuilder<'a> {
+pub struct GraphBuilder<'a> {
     syntax_tree: &'a mut SyntaxTree<'a>,
     current_node: Option<NodeIndex>,
 }
@@ -55,6 +60,10 @@ impl<'a> GraphBuilder<'a> {
             syntax_tree,
             current_node,
         }
+    }
+
+    pub fn syntax_tree(&self) -> &SyntaxTree<'_> {
+        self.syntax_tree
     }
 }
 

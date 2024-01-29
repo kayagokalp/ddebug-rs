@@ -14,11 +14,17 @@
 //! 5. Continue until removing a child of the current solution does not removes the error or there
 //!    is no un-visited node in the graph.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use syn::visit::Visit;
+use thiserror::Error;
 
-use crate::builder::CodeBuilder;
+use crate::{
+    builder::{CodeBuilder, CodeBuilderError},
+    graph::{GraphBuilder, SyntaxTree},
+    parser::AbstractSyntaxTree,
+};
 pub trait Search {
-    fn search(self);
+    fn search(self) -> Result<(), SearcherError>;
 }
 
 pub enum Target<'a> {
@@ -37,8 +43,58 @@ pub struct ASTGuidedSearcher<'a> {
     target: Target<'a>,
 }
 
+impl<'a> ASTGuidedSearcher<'a> {
+    pub fn new(target: Target<'a>) -> Self {
+        Self { target }
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum SearcherError {
+    #[error("Error while trying to build code variant: {0}")]
+    BuildOperationError(CodeBuilderError),
+    #[error("Error source file is missing for error: {0}")]
+    ErrorSourceFileIsMissing(String),
+    #[error("Cannot find source of error file locally at: {0}")]
+    ErrorSourceFileNotFound(PathBuf),
+}
+
+impl From<CodeBuilderError> for SearcherError {
+    fn from(value: CodeBuilderError) -> Self {
+        Self::BuildOperationError(value)
+    }
+}
+
 impl Search for ASTGuidedSearcher<'_> {
-    fn search(self) {
+    fn search(self) -> Result<(), SearcherError> {
         let code_builder = CodeBuilder::from(self.target);
+        let variant_errors = code_builder.collect_errors()?;
+
+        // TODO: Maybe add an option for users to be able to specify this.
+        let master_error = variant_errors.errors.first();
+
+        if let Some(master_error) = master_error {
+            // We are searching the root for this error.
+            let root_file = master_error.source_file.as_ref().ok_or_else(|| {
+                SearcherError::ErrorSourceFileIsMissing(master_error.error_src.clone())
+            })?;
+
+            let file_str = std::fs::read_to_string(root_file)
+                .map_err(|_| SearcherError::ErrorSourceFileNotFound(root_file.to_path_buf()))?;
+            let ast = AbstractSyntaxTree::parse(file_str);
+
+            let file = ast.syn_file();
+
+            let mut syntax_tree = SyntaxTree::new();
+            let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None);
+            graph_builder.visit_file(&file);
+            println!(
+                "{:?}",
+                petgraph::dot::Dot::new(graph_builder.syntax_tree().as_ref())
+            );
+
+            println!("error -> {master_error:?}")
+        }
+        Ok(())
     }
 }

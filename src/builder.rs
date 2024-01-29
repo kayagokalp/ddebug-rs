@@ -27,8 +27,26 @@ pub struct BuildErros {
 pub enum ParseError {
     #[error("unmatched location information")]
     UnmatchedLocationInformation,
-    #[error("Invalid string found, {0}")]
-    InvalidString(String),
+}
+
+#[derive(Error, Debug)]
+pub enum CodeBuilderError {
+    #[error("IO eror emitted from code builder: {0}")]
+    IOError(std::io::Error),
+    #[error("Cargo output parse error: {0}")]
+    CargoOutputParseError(ParseError),
+}
+
+impl From<std::io::Error> for CodeBuilderError {
+    fn from(value: std::io::Error) -> Self {
+        Self::IOError(value)
+    }
+}
+
+impl From<ParseError> for CodeBuilderError {
+    fn from(value: ParseError) -> Self {
+        Self::CargoOutputParseError(value)
+    }
 }
 
 impl TryFrom<String> for BuildErros {
@@ -76,7 +94,7 @@ impl TryFrom<String> for BuildErros {
 }
 
 impl<'a> CodeBuilder<'a> {
-    pub fn collect_errors(&'a self) -> anyhow::Result<BuildErros> {
+    pub fn collect_errors(&'a self) -> Result<BuildErros, CodeBuilderError> {
         match self {
             CodeBuilder::Path(src_code_path) => {
                 let build_output = execute_cargo_check_and_grep(src_code_path)?;
