@@ -1,37 +1,254 @@
 //! Code generation from given `AbstractSyntaxTree`.
 
+use std::collections::HashMap;
+
+use petgraph::{
+    prelude::NodeIndex,
+    stable_graph::StableDiGraph,
+    visit::{EdgeRef, Walker},
+    Direction,
+};
+use syn::{Block, Expr, ExprArray, ExprAssign, ExprLet, File, Item, ItemFn, Local, Stmt};
 use thiserror::Error;
 
-use crate::{graph::SyntaxTree, parser::AstNode};
+use crate::parser::AstNode;
 
 /// Code generation from the `SyntaxTree`.
 pub struct CodeGenerator<'a> {
-    syntax_tree: &'a SyntaxTree<'a>,
+    graph: &'a StableDiGraph<AstNode<'a>, ()>,
+    root_node: Option<NodeIndex>,
 }
 
 #[derive(Debug, Error)]
 pub enum CodeGeneratorError {
     #[error("Missing root node in the syntax tree")]
     RootNodeMissingInSyntaxTree,
+    #[error("File structure could not be generated")]
+    FileNotGeneratedFromTree,
+    #[error("Mismatch conversion attempted, tried to convert {0} to {1}")]
+    MismatchedASTConversion(String, String),
+    #[error("ItemFn's child is not Block")]
+    ItemFnIsNotFollowedByBlock,
+    #[error("SourceRoot does not have an item child")]
+    SourceRootDoesNotHaveItemChild,
+}
+
+#[derive(Clone)]
+pub enum GeneratedASTNode {
+    SourceRoot(File),
+    Item(Item),
+    ItemFn(ItemFn),
+    Block(Block),
+    LocalStmt(Local),
+    ExprArray(ExprArray),
+    ExprAssign(ExprAssign),
+    ExprLet(ExprLet),
+}
+
+impl std::fmt::Debug for GeneratedASTNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SourceRoot(_) => f.write_str("root"),
+            Self::Item(_) => f.write_str("item"),
+            Self::ItemFn(_) => f.write_str("item fn"),
+            Self::Block(_) => f.write_str("block"),
+            Self::LocalStmt(_) => f.write_str("loc_stmt"),
+            Self::ExprArray(_) => f.write_str("expr_array"),
+            Self::ExprAssign(_) => f.write_str("expr_assign"),
+            Self::ExprLet(_) => f.write_str("expr_let"),
+        }
+    }
+}
+
+impl From<AstNode<'_>> for GeneratedASTNode {
+    fn from(value: AstNode<'_>) -> Self {
+        match value {
+            AstNode::SourceRoot(source_root) => GeneratedASTNode::SourceRoot(source_root.clone()),
+            AstNode::Item(item) => GeneratedASTNode::Item(item.clone()),
+            AstNode::ItemFn(item_fn) => GeneratedASTNode::ItemFn(item_fn.clone()),
+            AstNode::Block(block) => GeneratedASTNode::Block(block.clone()),
+            AstNode::LocalStmt(local_stmt) => GeneratedASTNode::LocalStmt(local_stmt.clone()),
+            AstNode::ExprArray(expr_array) => GeneratedASTNode::ExprArray(expr_array.clone()),
+            AstNode::ExprAssign(expr_assign) => GeneratedASTNode::ExprAssign(expr_assign.clone()),
+            AstNode::ExprLet(expr_let) => GeneratedASTNode::ExprLet(expr_let.clone()),
+        }
+    }
+}
+
+impl TryFrom<GeneratedASTNode> for Stmt {
+    type Error = CodeGeneratorError;
+
+    fn try_from(value: GeneratedASTNode) -> Result<Self, Self::Error> {
+        match value {
+            GeneratedASTNode::LocalStmt(local_stmt) => Ok(Stmt::Local(local_stmt)),
+            GeneratedASTNode::ExprArray(expr_arr) => {
+                let expr = Expr::Array(expr_arr);
+                // TODO: look into this `,` being none.
+                Ok(Stmt::Expr(expr, None))
+            }
+            GeneratedASTNode::ExprAssign(expr_assign) => {
+                let expr = Expr::Assign(expr_assign);
+                // TODO: look into this `,` being none.
+                Ok(Stmt::Expr(expr, None))
+            }
+            GeneratedASTNode::ExprLet(expr_let) => {
+                let expr = Expr::Let(expr_let);
+                // TODO: look into this `,` being none.
+                Ok(Stmt::Expr(expr, None))
+            }
+            other => Err(Self::Error::MismatchedASTConversion(
+                format!("{other:?}"),
+                "stmt".to_owned(),
+            )),
+        }
+    }
+}
+
+impl TryFrom<GeneratedASTNode> for Block {
+    type Error = CodeGeneratorError;
+
+    fn try_from(value: GeneratedASTNode) -> Result<Self, Self::Error> {
+        match value {
+            GeneratedASTNode::Block(block) => Ok(block),
+            other => Err(Self::Error::MismatchedASTConversion(
+                format!("{other:?}"),
+                "block".to_owned(),
+            )),
+        }
+    }
+}
+
+impl TryFrom<GeneratedASTNode> for ItemFn {
+    type Error = CodeGeneratorError;
+
+    fn try_from(value: GeneratedASTNode) -> Result<Self, Self::Error> {
+        match value {
+            GeneratedASTNode::ItemFn(item_fn) => Ok(item_fn),
+            other => Err(Self::Error::MismatchedASTConversion(
+                format!("{other:?}"),
+                "item_fn".to_owned(),
+            )),
+        }
+    }
+}
+
+impl TryFrom<GeneratedASTNode> for Item {
+    type Error = CodeGeneratorError;
+
+    fn try_from(value: GeneratedASTNode) -> Result<Self, Self::Error> {
+        match value {
+            GeneratedASTNode::Item(item) => Ok(item),
+            other => Err(Self::Error::MismatchedASTConversion(
+                format!("{other:?}"),
+                "item".to_owned(),
+            )),
+        }
+    }
 }
 
 impl<'a> CodeGenerator<'a> {
-    pub fn new(syntax_tree: &'a SyntaxTree<'a>) -> Self {
-        Self { syntax_tree }
+    pub fn new(
+        graph: &'a petgraph::stable_graph::StableGraph<AstNode<'_>, ()>,
+        root_node: Option<NodeIndex>,
+    ) -> Self {
+        Self { graph, root_node }
     }
 
     pub fn generate(self) -> Result<String, CodeGeneratorError> {
         // Get the source root.
         let root_node_ix = self
-            .syntax_tree
-            .root_node()
+            .root_node
             .ok_or(CodeGeneratorError::RootNodeMissingInSyntaxTree)?;
 
-        let graph = self.syntax_tree.as_ref();
-        if let AstNode::SourceRoot(file) = graph[root_node_ix] {
-            Ok(prettyplease::unparse(file))
+        let graph = self.graph;
+        let bfs = petgraph::visit::Bfs::new(graph, root_node_ix);
+
+        let mut order: Vec<_> = bfs.iter(graph).collect();
+        order.reverse();
+
+        let mut ix_to_ast_node: HashMap<_, GeneratedASTNode> = HashMap::new();
+        let mut file = None;
+
+        for node_ix in order {
+            let node = &graph[node_ix];
+
+            if graph.edges_directed(node_ix, Direction::Outgoing).count() == 0 {
+                // this is a leaf node.
+                ix_to_ast_node.insert(node_ix, GeneratedASTNode::from(node.clone()));
+            } else {
+                match node {
+                    AstNode::SourceRoot(root) => {
+                        let items = graph
+                            .edges_directed(node_ix, Direction::Outgoing)
+                            .map(|edge| edge.target())
+                            .map(|target_ix| ix_to_ast_node[&target_ix].clone())
+                            .map(Item::try_from)
+                            .collect::<Result<Vec<Item>, _>>()?;
+
+                        file = Some(File {
+                            shebang: root.shebang.clone(),
+                            attrs: root.attrs.clone(),
+                            items,
+                        });
+                        break;
+                    }
+                    AstNode::Item(_) => {
+                        let item_fn = graph
+                            .edges_directed(node_ix, Direction::Outgoing)
+                            .map(|edge| edge.target())
+                            .map(|target_ix| ix_to_ast_node[&target_ix].clone())
+                            .map(ItemFn::try_from)
+                            .find_map(Result::ok);
+
+                        if let Some(item_fn) = item_fn {
+                            let item = Item::Fn(item_fn);
+                            ix_to_ast_node.insert(node_ix, GeneratedASTNode::Item(item));
+                        }
+                    }
+                    AstNode::ItemFn(item_fn) => {
+                        let block = graph
+                            .edges_directed(node_ix, Direction::Outgoing)
+                            .map(|edge| edge.target())
+                            .map(|target_ix| ix_to_ast_node[&target_ix].clone())
+                            .map(Block::try_from)
+                            .next()
+                            .ok_or(CodeGeneratorError::ItemFnIsNotFollowedByBlock)??;
+
+                        let item_fn = ItemFn {
+                            attrs: item_fn.attrs.clone(),
+                            vis: item_fn.vis.clone(),
+                            sig: item_fn.sig.clone(),
+                            block: Box::new(block),
+                        };
+
+                        ix_to_ast_node.insert(node_ix, GeneratedASTNode::ItemFn(item_fn));
+                    }
+                    AstNode::Block(block) => {
+                        let child_stmnts = graph
+                            .edges_directed(node_ix, Direction::Outgoing)
+                            .map(|edge| edge.target())
+                            .map(|target_ix| ix_to_ast_node[&target_ix].clone())
+                            .map(Stmt::try_from)
+                            .collect::<Result<Vec<Stmt>, _>>()?;
+
+                        let block = Block {
+                            brace_token: block.brace_token,
+                            stmts: child_stmnts,
+                        };
+
+                        ix_to_ast_node.insert(node_ix, GeneratedASTNode::Block(block));
+                    }
+                    _ => {
+                        unreachable!("leaf nodes won't be able to reach here")
+                    }
+                }
+            }
+        }
+
+        if let Some(file) = file {
+            Ok(prettyplease::unparse(&file))
         } else {
-            Err(CodeGeneratorError::RootNodeMissingInSyntaxTree)
+            Err(CodeGeneratorError::FileNotGeneratedFromTree)
         }
     }
 }
@@ -59,8 +276,13 @@ fn main() {}"#;
         let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None);
         graph_builder.visit_file(&file);
 
-        let code_generator = CodeGenerator::new(graph_builder.syntax_tree());
+        let root_node = syntax_tree.root_node();
+        let graph = syntax_tree.as_ref();
+        let code_generator = CodeGenerator::new(graph, root_node);
         let generated_code = code_generator.generate().unwrap();
+
+        println!("---");
+        println!("{generated_code}");
 
         let reparsed_ast = AbstractSyntaxTree::parse(generated_code);
 

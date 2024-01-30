@@ -18,8 +18,10 @@ use thiserror::Error;
 
 use crate::{
     builder::{CodeBuilder, CodeBuilderError},
+    generator::CodeGenerator,
     graph::{GraphBuilder, SyntaxTree},
-    parser::AbstractSyntaxTree,
+    parser::{AbstractSyntaxTree, AstNode},
+    remover::NodeRemover,
 };
 pub trait Search {
     fn search(self) -> Result<(), SearcherError>;
@@ -84,12 +86,32 @@ impl Search for ASTGuidedSearcher<'_> {
             let file = ast.syn_file();
 
             let mut syntax_tree = SyntaxTree::new();
-            let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None);
+            let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None, None);
             graph_builder.visit_file(&file);
+            let root = graph_builder.root_node();
             println!(
                 "{:?}",
                 petgraph::dot::Dot::new(graph_builder.syntax_tree().as_ref())
             );
+
+            let graph = graph_builder.syntax_tree_mut().as_mut();
+            let assignment_st = graph
+                .node_indices()
+                .find(|node_index| {
+                    let node = &graph[*node_index];
+                    matches!(node, AstNode::ExprAssign(_))
+                })
+                .unwrap();
+
+            NodeRemover::remove_node(graph, assignment_st);
+
+            let graph = graph.clone();
+            println!("{:?}", petgraph::dot::Dot::new(&graph));
+
+            let code_generator = CodeGenerator::new(&graph, root);
+            let generated_code = code_generator.generate().unwrap();
+
+            println!("{generated_code}");
 
             println!("error -> {master_error:?}")
         }

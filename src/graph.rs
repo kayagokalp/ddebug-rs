@@ -22,7 +22,6 @@ impl std::fmt::Debug for AstNode<'_> {
 #[derive(Debug)]
 pub struct SyntaxTree<'a> {
     graph: StableDiGraph<AstNode<'a>, ()>,
-    root_node: Option<NodeIndex>,
 }
 
 impl<'a> AsRef<StableDiGraph<AstNode<'a>, ()>> for SyntaxTree<'a> {
@@ -30,12 +29,18 @@ impl<'a> AsRef<StableDiGraph<AstNode<'a>, ()>> for SyntaxTree<'a> {
         &self.graph
     }
 }
+
+impl<'a> AsMut<StableDiGraph<AstNode<'a>, ()>> for SyntaxTree<'a> {
+    fn as_mut(&mut self) -> &mut StableDiGraph<AstNode<'a>, ()> {
+        &mut self.graph
+    }
+}
+
 impl<'a> SyntaxTree<'a> {
     // Constructor function to create a new SyntaxTree
     pub fn new() -> Self {
         SyntaxTree {
             graph: StableDiGraph::new(),
-            root_node: None,
         }
     }
 
@@ -48,28 +53,38 @@ impl<'a> SyntaxTree<'a> {
     fn add_edge(&mut self, source: NodeIndex, target: NodeIndex) {
         self.graph.add_edge(source, target, ());
     }
-
-    pub fn root_node(&self) -> Option<NodeIndex> {
-        self.root_node
-    }
 }
 
 // Custom visitor to traverse the syntax tree and build the graph
 pub struct GraphBuilder<'a> {
     syntax_tree: &'a mut SyntaxTree<'a>,
     current_node: Option<NodeIndex>,
+    root_node: Option<NodeIndex>,
 }
 
 impl<'a> GraphBuilder<'a> {
-    pub fn new(syntax_tree: &'a mut SyntaxTree<'a>, current_node: Option<NodeIndex>) -> Self {
+    pub fn new(
+        syntax_tree: &'a mut SyntaxTree<'a>,
+        current_node: Option<NodeIndex>,
+        root_node: Option<NodeIndex>,
+    ) -> Self {
         Self {
             syntax_tree,
             current_node,
+            root_node,
         }
     }
 
     pub fn syntax_tree(&self) -> &SyntaxTree<'_> {
         self.syntax_tree
+    }
+
+    pub fn syntax_tree_mut(&'a mut self) -> &mut SyntaxTree<'a> {
+        self.syntax_tree
+    }
+
+    pub fn root_node(&self) -> Option<NodeIndex<u32>> {
+        self.root_node
     }
 }
 
@@ -96,7 +111,7 @@ impl<'a> Visit<'a> for GraphBuilder<'a> {
         insert_and_visit!(self, SourceRoot, file, visit_file);
         // We inserted source root, the only node in the graph is the source root.
         let root_node = self.syntax_tree.graph.node_indices().next();
-        self.syntax_tree.root_node = root_node;
+        self.root_node = root_node;
     }
     fn visit_item(&mut self, item: &'a syn::Item) {
         insert_and_visit!(self, Item, item, visit_item);
@@ -168,7 +183,7 @@ mod tests {
         use petgraph::visit::Dfs;
 
         let mut syntax_tree = SyntaxTree::new();
-        let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None);
+        let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None, None);
         let file = ast.clone().syn_file();
 
         // Construct the graph by visiting the entire file.
@@ -201,7 +216,7 @@ mod tests {
         let file = parsed_ast.clone().syn_file();
 
         let mut syntax_tree = SyntaxTree::new();
-        let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None);
+        let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None, None);
         graph_builder.visit_file(&file);
 
         let graph = graph_builder.syntax_tree;
@@ -227,7 +242,7 @@ fn main() {}"#;
         let file = parsed_ast.clone().syn_file();
 
         let mut syntax_tree = SyntaxTree::new();
-        let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None);
+        let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None, None);
         graph_builder.visit_file(&file);
 
         let graph = graph_builder.syntax_tree;
@@ -259,7 +274,7 @@ fn test_fn() {
         let file = parsed_ast.clone().syn_file();
 
         let mut syntax_tree = SyntaxTree::new();
-        let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None);
+        let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None, None);
         graph_builder.visit_file(&file);
 
         let graph = graph_builder.syntax_tree;
