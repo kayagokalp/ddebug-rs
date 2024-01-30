@@ -109,6 +109,8 @@ dependencies = [
  "anyhow",
  "clap",
  "petgraph",
+ "prettyplease",
+ "quote",
  "syn",
  "thiserror",
 ]
@@ -155,6 +157,16 @@ checksum = "e1d3afd2628e69da2be385eb6f2fd57c8ac7977ceeff6dc166ff1657b0e386a9"
 dependencies = [
  "fixedbitset",
  "indexmap",
+]
+
+[[package]]
+name = "prettyplease"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a41cf62165e97c7f814d2221421dbb9afcbcdb0a88068e5ea206e19951c2cbb5"
+dependencies = [
+ "proc-macro2",
+ "syn",
 ]
 
 [[package]]

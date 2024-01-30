@@ -1,13 +1,14 @@
 mod builder;
+mod command;
+mod generator;
 mod graph;
 mod parser;
 mod searcher;
-mod command;
 
 use std::env::current_dir;
 
-use command::Args;
 use clap::Parser;
+use command::Args;
 use searcher::{ASTGuidedSearcher, Search};
 
 fn main() -> anyhow::Result<()> {
@@ -16,7 +17,7 @@ fn main() -> anyhow::Result<()> {
     let current_dir = current_dir()?;
     let target_path = args.path.unwrap_or(current_dir);
 
-    let searcher = ASTGuidedSearcher::new(searcher::Target::Path(&target_path)); 
+    let searcher = ASTGuidedSearcher::new(searcher::Target::Path(&target_path));
     searcher.search()?;
 
     Ok(())

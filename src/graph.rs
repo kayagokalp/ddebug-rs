@@ -22,6 +22,7 @@ impl std::fmt::Debug for AstNode<'_> {
 #[derive(Debug)]
 pub struct SyntaxTree<'a> {
     graph: StableDiGraph<AstNode<'a>, ()>,
+    root_node: Option<NodeIndex>,
 }
 
 impl<'a> AsRef<StableDiGraph<AstNode<'a>, ()>> for SyntaxTree<'a> {
@@ -34,6 +35,7 @@ impl<'a> SyntaxTree<'a> {
     pub fn new() -> Self {
         SyntaxTree {
             graph: StableDiGraph::new(),
+            root_node: None,
         }
     }
 
@@ -45,6 +47,10 @@ impl<'a> SyntaxTree<'a> {
     // Function to add an edge between two nodes in the graph
     fn add_edge(&mut self, source: NodeIndex, target: NodeIndex) {
         self.graph.add_edge(source, target, ());
+    }
+
+    pub fn root_node(&self) -> Option<NodeIndex> {
+        self.root_node
     }
 }
 
@@ -88,6 +94,9 @@ macro_rules! insert_and_visit {
 impl<'a> Visit<'a> for GraphBuilder<'a> {
     fn visit_file(&mut self, file: &'a syn::File) {
         insert_and_visit!(self, SourceRoot, file, visit_file);
+        // We inserted source root, the only node in the graph is the source root.
+        let root_node = self.syntax_tree.graph.node_indices().next();
+        self.syntax_tree.root_node = root_node;
     }
     fn visit_item(&mut self, item: &'a syn::Item) {
         insert_and_visit!(self, Item, item, visit_item);

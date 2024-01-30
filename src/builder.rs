@@ -98,12 +98,6 @@ impl<'a> CodeBuilder<'a> {
         match self {
             CodeBuilder::Path(src_code_path) => {
                 let build_output = execute_cargo_check_and_grep(src_code_path)?;
-                dbg!(build_output.clone());
-                //let build_output =  String::from_utf8(build_output.stderr)?;
-                // TODO: IMPLEMENT THIS
-                // 1.Check if source code path is a cargo project.
-                // 2.Run cargo build in the src_code_path.
-                // 3.Collect all error codes.
                 Ok(BuildErros::try_from(build_output)?)
             }
         }

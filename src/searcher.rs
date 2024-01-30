@@ -7,12 +7,10 @@
 //! 1. Build target project using `CodeBuilder` and collect error codes.
 //! 2. Find which file causes the user specified error.
 //! 3. Parse the file, to generate AST as a graph.
-//! 4. Start doing a BFS over the graph. Remove a node check if the `same` error code still exists.
-//!    4a. If same error code still exists continue with BFS order.
-//!    4b. If error changed or disappeared, start a new BFS from that node and mark the node as the
-//!    last solution.
-//! 5. Continue until removing a child of the current solution does not removes the error or there
-//!    is no un-visited node in the graph.
+//! 4. Start doing a BFS over the graph. Remove a node and check if the `same` error code still exists.
+//!    4a. If same error code still exists mark it unncessary and continue with BFS order.
+//!    4b. If error changed or disappeared, start a new BFS from that node.
+//! 5. Continue until all nodes are visited or removing all childs of a node changes the error.
 
 use std::path::{Path, PathBuf};
 use syn::visit::Visit;
