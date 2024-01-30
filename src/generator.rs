@@ -14,9 +14,8 @@ use thiserror::Error;
 use crate::parser::AstNode;
 
 /// Code generation from the `SyntaxTree`.
-pub struct CodeGenerator<'a> {
-    graph: &'a StableDiGraph<AstNode<'a>, ()>,
-    root_node: Option<NodeIndex>,
+pub struct CodeGenerator {
+    ix_to_ast_node: HashMap<NodeIndex, GeneratedASTNode>,
 }
 
 #[derive(Debug, Error)]
@@ -27,8 +26,6 @@ pub enum CodeGeneratorError {
     FileNotGeneratedFromTree,
     #[error("Mismatch conversion attempted, tried to convert {0} to {1}")]
     MismatchedASTConversion(String, String),
-    #[error("ItemFn's child is not Block")]
-    ItemFnIsNotFollowedByBlock,
     #[error("SourceRoot does not have an item child")]
     SourceRootDoesNotHaveItemChild,
 }
@@ -146,101 +143,102 @@ impl TryFrom<GeneratedASTNode> for Item {
     }
 }
 
-impl<'a> CodeGenerator<'a> {
-    pub fn new(
-        graph: &'a petgraph::stable_graph::StableGraph<AstNode<'_>, ()>,
-        root_node: Option<NodeIndex>,
-    ) -> Self {
-        Self { graph, root_node }
+impl CodeGenerator {
+    pub fn new() -> Self {
+        Self {
+            ix_to_ast_node: HashMap::new(),
+        }
     }
 
-    pub fn generate(self) -> Result<String, CodeGeneratorError> {
+    pub fn generate(
+        &mut self,
+        graph: &StableDiGraph<AstNode<'_>, ()>,
+        root_node_ix: NodeIndex,
+    ) -> Result<String, CodeGeneratorError> {
         // Get the source root.
-        let root_node_ix = self
-            .root_node
-            .ok_or(CodeGeneratorError::RootNodeMissingInSyntaxTree)?;
-
-        let graph = self.graph;
         let bfs = petgraph::visit::Bfs::new(graph, root_node_ix);
 
         let mut order: Vec<_> = bfs.iter(graph).collect();
         order.reverse();
 
-        let mut ix_to_ast_node: HashMap<_, GeneratedASTNode> = HashMap::new();
         let mut file = None;
 
         for node_ix in order {
             let node = &graph[node_ix];
+            match node {
+                AstNode::SourceRoot(root) => {
+                    let items = graph
+                        .edges_directed(node_ix, Direction::Outgoing)
+                        .map(|edge| edge.target())
+                        .map(|target_ix| self.ix_to_ast_node[&target_ix].clone())
+                        .map(Item::try_from)
+                        .collect::<Result<Vec<Item>, _>>()?;
 
-            if graph.edges_directed(node_ix, Direction::Outgoing).count() == 0 {
-                // this is a leaf node.
-                ix_to_ast_node.insert(node_ix, GeneratedASTNode::from(node.clone()));
-            } else {
-                match node {
-                    AstNode::SourceRoot(root) => {
-                        let items = graph
-                            .edges_directed(node_ix, Direction::Outgoing)
-                            .map(|edge| edge.target())
-                            .map(|target_ix| ix_to_ast_node[&target_ix].clone())
-                            .map(Item::try_from)
-                            .collect::<Result<Vec<Item>, _>>()?;
+                    file = Some(File {
+                        shebang: root.shebang.clone(),
+                        attrs: root.attrs.clone(),
+                        items,
+                    });
+                    break;
+                }
+                AstNode::Item(_) => {
+                    let item_fn = graph
+                        .edges_directed(node_ix, Direction::Outgoing)
+                        .map(|edge| edge.target())
+                        .map(|target_ix| self.ix_to_ast_node[&target_ix].clone())
+                        .map(ItemFn::try_from)
+                        .find_map(Result::ok);
 
-                        file = Some(File {
-                            shebang: root.shebang.clone(),
-                            attrs: root.attrs.clone(),
-                            items,
+                    if let Some(item_fn) = item_fn {
+                        let item = Item::Fn(item_fn);
+                        self.ix_to_ast_node
+                            .insert(node_ix, GeneratedASTNode::Item(item));
+                    }
+                }
+                AstNode::ItemFn(item_fn) => {
+                    let block = graph
+                        .edges_directed(node_ix, Direction::Outgoing)
+                        .map(|edge| edge.target())
+                        .map(|target_ix| self.ix_to_ast_node[&target_ix].clone())
+                        .map(Block::try_from)
+                        .find_map(Result::ok)
+                        .unwrap_or_else(|| Block {
+                            brace_token: Default::default(),
+                            stmts: vec![],
                         });
-                        break;
-                    }
-                    AstNode::Item(_) => {
-                        let item_fn = graph
-                            .edges_directed(node_ix, Direction::Outgoing)
-                            .map(|edge| edge.target())
-                            .map(|target_ix| ix_to_ast_node[&target_ix].clone())
-                            .map(ItemFn::try_from)
-                            .find_map(Result::ok);
 
-                        if let Some(item_fn) = item_fn {
-                            let item = Item::Fn(item_fn);
-                            ix_to_ast_node.insert(node_ix, GeneratedASTNode::Item(item));
-                        }
-                    }
-                    AstNode::ItemFn(item_fn) => {
-                        let block = graph
-                            .edges_directed(node_ix, Direction::Outgoing)
-                            .map(|edge| edge.target())
-                            .map(|target_ix| ix_to_ast_node[&target_ix].clone())
-                            .map(Block::try_from)
-                            .next()
-                            .ok_or(CodeGeneratorError::ItemFnIsNotFollowedByBlock)??;
+                    let item_fn = ItemFn {
+                        attrs: item_fn.attrs.clone(),
+                        vis: item_fn.vis.clone(),
+                        sig: item_fn.sig.clone(),
+                        block: Box::new(block),
+                    };
 
-                        let item_fn = ItemFn {
-                            attrs: item_fn.attrs.clone(),
-                            vis: item_fn.vis.clone(),
-                            sig: item_fn.sig.clone(),
-                            block: Box::new(block),
-                        };
+                    self.ix_to_ast_node
+                        .insert(node_ix, GeneratedASTNode::ItemFn(item_fn));
+                }
+                AstNode::Block(block) => {
+                    let mut child_stmnts = graph
+                        .edges_directed(node_ix, Direction::Outgoing)
+                        .map(|edge| edge.target())
+                        .map(|target_ix| self.ix_to_ast_node[&target_ix].clone())
+                        .map(Stmt::try_from)
+                        .collect::<Result<Vec<Stmt>, _>>()?;
 
-                        ix_to_ast_node.insert(node_ix, GeneratedASTNode::ItemFn(item_fn));
-                    }
-                    AstNode::Block(block) => {
-                        let child_stmnts = graph
-                            .edges_directed(node_ix, Direction::Outgoing)
-                            .map(|edge| edge.target())
-                            .map(|target_ix| ix_to_ast_node[&target_ix].clone())
-                            .map(Stmt::try_from)
-                            .collect::<Result<Vec<Stmt>, _>>()?;
+                    child_stmnts.reverse();
 
-                        let block = Block {
-                            brace_token: block.brace_token,
-                            stmts: child_stmnts,
-                        };
+                    let block = Block {
+                        brace_token: block.brace_token,
+                        stmts: child_stmnts,
+                    };
 
-                        ix_to_ast_node.insert(node_ix, GeneratedASTNode::Block(block));
-                    }
-                    _ => {
-                        unreachable!("leaf nodes won't be able to reach here")
-                    }
+                    self.ix_to_ast_node
+                        .insert(node_ix, GeneratedASTNode::Block(block));
+                }
+                _ => {
+                    // this is a leaf node.
+                    self.ix_to_ast_node
+                        .insert(node_ix, GeneratedASTNode::from(node.clone()));
                 }
             }
         }

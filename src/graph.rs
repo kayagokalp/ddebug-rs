@@ -79,10 +79,6 @@ impl<'a> GraphBuilder<'a> {
         self.syntax_tree
     }
 
-    pub fn syntax_tree_mut(&'a mut self) -> &mut SyntaxTree<'a> {
-        self.syntax_tree
-    }
-
     pub fn root_node(&self) -> Option<NodeIndex<u32>> {
         self.root_node
     }

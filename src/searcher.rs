@@ -20,7 +20,7 @@ use crate::{
     builder::{CodeBuilder, CodeBuilderError},
     generator::CodeGenerator,
     graph::{GraphBuilder, SyntaxTree},
-    parser::{AbstractSyntaxTree, AstNode},
+    parser::AbstractSyntaxTree,
     remover::NodeRemover,
 };
 pub trait Search {
@@ -57,6 +57,8 @@ pub enum SearcherError {
     ErrorSourceFileIsMissing(String),
     #[error("Cannot find source of error file locally at: {0}")]
     ErrorSourceFileNotFound(PathBuf),
+    #[error("AST seems to be missing a root node")]
+    RootNodeFound,
 }
 
 impl From<CodeBuilderError> for SearcherError {
@@ -74,6 +76,7 @@ impl Search for ASTGuidedSearcher<'_> {
         let master_error = variant_errors.errors.first();
 
         if let Some(master_error) = master_error {
+            println!("error -> {master_error:?}");
             // We are searching the root for this error.
             let root_file = master_error.source_file.as_ref().ok_or_else(|| {
                 SearcherError::ErrorSourceFileIsMissing(master_error.error_src.clone())
@@ -88,32 +91,25 @@ impl Search for ASTGuidedSearcher<'_> {
             let mut syntax_tree = SyntaxTree::new();
             let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None, None);
             graph_builder.visit_file(&file);
-            let root = graph_builder.root_node();
-            println!(
-                "{:?}",
-                petgraph::dot::Dot::new(graph_builder.syntax_tree().as_ref())
-            );
+            let root = graph_builder
+                .root_node()
+                .ok_or(SearcherError::RootNodeFound)?;
 
-            let graph = graph_builder.syntax_tree_mut().as_mut();
-            let assignment_st = graph
-                .node_indices()
-                .find(|node_index| {
-                    let node = &graph[*node_index];
-                    matches!(node, AstNode::ExprAssign(_))
-                })
-                .unwrap();
+            let graph = graph_builder.syntax_tree().as_ref();
+            let mut bfs = petgraph::visit::Bfs::new(graph, root);
+            // Omit root node of the graph.
+            let _ = bfs.next(graph);
 
-            NodeRemover::remove_node(graph, assignment_st);
+            let mut code_generator = CodeGenerator::new();
+            while let Some(node_to_check) = bfs.next(graph) {
+                let mut invariant_graph = graph.clone();
+                NodeRemover::remove_node(&mut invariant_graph, node_to_check);
+                //println!("{:?}", petgraph::dot::Dot::new(&invariant_graph));
+                let generated_code = code_generator.generate(&invariant_graph, root).unwrap();
 
-            let graph = graph.clone();
-            println!("{:?}", petgraph::dot::Dot::new(&graph));
-
-            let code_generator = CodeGenerator::new(&graph, root);
-            let generated_code = code_generator.generate().unwrap();
-
-            println!("{generated_code}");
-
-            println!("error -> {master_error:?}")
+                println!("{generated_code}");
+                println!("----------------");
+            }
         }
         Ok(())
     }
