@@ -1,8 +1,6 @@
-fn test() {
-
-}
 fn main() {
-    let a = 2;
-    let b = 3;
-    a = 10;
+    let b = 0;
+    let a = 0;
+    let c = 0;
+    b = 10;
 }

@@ -167,12 +167,14 @@ impl CodeGenerator {
             let node = &graph[node_ix];
             match node {
                 AstNode::SourceRoot(root) => {
-                    let items = graph
+                    let mut items = graph
                         .edges_directed(node_ix, Direction::Outgoing)
                         .map(|edge| edge.target())
-                        .map(|target_ix| self.ix_to_ast_node[&target_ix].clone())
+                        .filter_map(|target_ix| self.ix_to_ast_node.get(&target_ix).cloned())
                         .map(Item::try_from)
                         .collect::<Result<Vec<Item>, _>>()?;
+
+                    items.reverse();
 
                     file = Some(File {
                         shebang: root.shebang.clone(),
@@ -188,6 +190,8 @@ impl CodeGenerator {
                         .map(|target_ix| self.ix_to_ast_node[&target_ix].clone())
                         .map(ItemFn::try_from)
                         .find_map(Result::ok);
+
+                    self.ix_to_ast_node.remove(&node_ix);
 
                     if let Some(item_fn) = item_fn {
                         let item = Item::Fn(item_fn);
@@ -271,16 +275,14 @@ fn main() {}"#;
         let file = parsed_ast.clone().syn_file();
 
         let mut syntax_tree = SyntaxTree::new();
-        let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None);
+        let mut graph_builder = GraphBuilder::new(&mut syntax_tree, None, None);
         graph_builder.visit_file(&file);
 
-        let root_node = syntax_tree.root_node();
-        let graph = syntax_tree.as_ref();
-        let code_generator = CodeGenerator::new(graph, root_node);
-        let generated_code = code_generator.generate().unwrap();
-
-        println!("---");
-        println!("{generated_code}");
+        let root_node = graph_builder.root_node().unwrap();
+        let mut code_generator = CodeGenerator::new();
+        let generated_code = code_generator
+            .generate(graph_builder.syntax_tree().as_ref(), root_node)
+            .unwrap();
 
         let reparsed_ast = AbstractSyntaxTree::parse(generated_code);
 

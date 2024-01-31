@@ -53,6 +53,10 @@ impl<'a> SyntaxTree<'a> {
     fn add_edge(&mut self, source: NodeIndex, target: NodeIndex) {
         self.graph.add_edge(source, target, ());
     }
+
+    pub fn graph(&self) -> StableDiGraph<AstNode<'_>, ()> {
+        self.graph.clone()
+    }
 }
 
 // Custom visitor to traverse the syntax tree and build the graph

@@ -12,7 +12,10 @@
 //!    4b. If error changed or disappeared, start a new BFS from that node.
 //! 5. Continue until all nodes are visited or removing all childs of a node changes the error.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 use syn::visit::Visit;
 use thiserror::Error;
 
@@ -69,6 +72,7 @@ impl From<CodeBuilderError> for SearcherError {
 
 impl Search for ASTGuidedSearcher<'_> {
     fn search(self) -> Result<(), SearcherError> {
+        let Target::Path(base_path) = self.target;
         let code_builder = CodeBuilder::from(self.target);
         let variant_errors = code_builder.collect_errors()?;
 
@@ -76,7 +80,6 @@ impl Search for ASTGuidedSearcher<'_> {
         let master_error = variant_errors.errors.first();
 
         if let Some(master_error) = master_error {
-            println!("error -> {master_error:?}");
             // We are searching the root for this error.
             let root_file = master_error.source_file.as_ref().ok_or_else(|| {
                 SearcherError::ErrorSourceFileIsMissing(master_error.error_src.clone())
@@ -95,21 +98,39 @@ impl Search for ASTGuidedSearcher<'_> {
                 .root_node()
                 .ok_or(SearcherError::RootNodeFound)?;
 
-            let graph = graph_builder.syntax_tree().as_ref();
-            let mut bfs = petgraph::visit::Bfs::new(graph, root);
+            let mut graph = graph_builder.syntax_tree().graph();
+            let mut bfs = petgraph::visit::Bfs::new(&graph, root);
             // Omit root node of the graph.
-            let _ = bfs.next(graph);
+            let _ = bfs.next(&graph);
 
             let mut code_generator = CodeGenerator::new();
-            while let Some(node_to_check) = bfs.next(graph) {
+            let file_path = base_path.join(root_file).canonicalize().unwrap();
+            let code_builder = CodeBuilder::Path(base_path);
+            let mut skip_set = HashSet::new();
+            while let Some(node_to_check) = bfs.next(&graph) {
+                if skip_set.contains(&node_to_check) {
+                    continue;
+                }
                 let mut invariant_graph = graph.clone();
-                NodeRemover::remove_node(&mut invariant_graph, node_to_check);
-                //println!("{:?}", petgraph::dot::Dot::new(&invariant_graph));
+                let removed_nodes = NodeRemover::remove_node(&mut invariant_graph, node_to_check);
                 let generated_code = code_generator.generate(&invariant_graph, root).unwrap();
 
-                println!("{generated_code}");
-                println!("----------------");
+                std::fs::write(&file_path, &generated_code).unwrap();
+                let variant_errors = code_builder.collect_errors()?;
+                let variant_master_error = variant_errors.errors.first();
+
+                if variant_master_error == Some(master_error) {
+                    // Remove it from the actual graph.
+                    skip_set.extend(removed_nodes);
+                    graph = invariant_graph;
+                }
+                skip_set.insert(node_to_check);
             }
+
+            let final_answer = code_generator.generate(&graph, root).unwrap();
+            std::fs::write(&file_path, &final_answer).unwrap();
+            println!("Minimized the code into:");
+            println!("{final_answer}");
         }
         Ok(())
     }
