@@ -86,7 +86,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
-          default: true
       - uses: Swatinem/rust-cache@v1
       - name: Install cargo-udeps
         uses: actions-rs/cargo@v1
@@ -114,7 +113,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
       - name: Publish crate
         uses: katyo/publish-crates@v1
         with:
