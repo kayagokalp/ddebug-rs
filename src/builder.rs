@@ -105,6 +105,7 @@ impl<'a> CodeBuilder<'a> {
 }
 
 fn execute_cargo_check_and_grep(path: &Path) -> Result<String, std::io::Error> {
+    dbg!(path);
     // Run `cargo build` and capture its output
     let cargo_output = Command::new("cargo")
         .current_dir(path)
@@ -179,7 +180,7 @@ error: could not compile `test_project` (bin "test_project") due to previous err
         let expected_error = BuildError {
             error_code: Some("E0384".to_owned()),
             source_file: Some("src/main.rs".into()),
-            error_src: "error[E0384]: cannot assign twice to immutable variable `a`".to_owned(),
+            error_src: "error[E0384]: cannot assign twice to immutable variable `b`".to_owned(),
         };
 
         let expected_build_errors = BuildErros {
