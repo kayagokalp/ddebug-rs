@@ -171,7 +171,9 @@ error: could not compile `test_project` (bin "test_project") due to previous err
         let project_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("test")
             .join("data")
-            .join("test_project");
+            .join("test_project")
+            .canonicalize().unwrap();
+        dbg!(project_dir.clone());
         let code_builder = CodeBuilder::Path(&project_dir);
 
         let errors = code_builder.collect_errors().unwrap();
