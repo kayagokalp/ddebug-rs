@@ -105,7 +105,6 @@ impl<'a> CodeBuilder<'a> {
 }
 
 fn execute_cargo_check_and_grep(path: &Path) -> Result<String, std::io::Error> {
-    dbg!(path);
     // Run `cargo build` and capture its output
     let cargo_output = Command::new("cargo")
         .current_dir(path)
