@@ -112,8 +112,6 @@ fn execute_cargo_check_and_grep(path: &Path) -> Result<String, std::io::Error> {
         .stderr(Stdio::piped())
         .output()?;
 
-    println!("here");
-
     // Prepare `ripgrep` command with the desired pattern
     let grep_output = Command::new("rg")
         .current_dir(path)
@@ -123,7 +121,6 @@ fn execute_cargo_check_and_grep(path: &Path) -> Result<String, std::io::Error> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()?;
-    println!("here");
 
     // Write cargo's output to `ripgrep`'s stdin
     let mut grep_stdin = grep_output
@@ -131,11 +128,9 @@ fn execute_cargo_check_and_grep(path: &Path) -> Result<String, std::io::Error> {
         .as_ref()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "Failed to open rg stdin"))?;
     grep_stdin.write_all(&cargo_output.stderr)?;
-    println!("here");
 
     // Collect the output from `ripgrep`
     let grep_result = grep_output.wait_with_output()?;
-    println!("here");
 
     // Convert the output to a String and return it
     String::from_utf8(grep_result.stdout)
