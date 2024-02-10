@@ -139,7 +139,7 @@ fn execute_cargo_check_and_grep(path: &Path) -> Result<String, std::io::Error> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{path::PathBuf, fs};
 
     use super::{BuildError, BuildErros, CodeBuilder};
 
@@ -171,8 +171,15 @@ error: could not compile `test_project` (bin "test_project") due to previous err
         let project_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("test")
             .join("data")
-            .join("test_project")
-            .canonicalize().unwrap();
+            .join("test_project");
+
+        println!("searching -- {project_dir:?}");
+        let files = fs::read_dir(&project_dir).unwrap();
+        for path in files {
+            let path = path.unwrap();
+            println!("item -- {}", path.path().display())
+        }
+
         let code_builder = CodeBuilder::Path(&project_dir);
 
         let errors = code_builder.collect_errors().unwrap();
