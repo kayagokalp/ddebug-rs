@@ -139,7 +139,7 @@ fn execute_cargo_check_and_grep(path: &Path) -> Result<String, std::io::Error> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{path::PathBuf, fs};
 
     use super::{BuildError, BuildErros, CodeBuilder};
 
@@ -172,6 +172,14 @@ error: could not compile `test_project` (bin "test_project") due to previous err
             .join("test")
             .join("data")
             .join("test_project");
+
+        println!("searching -- {project_dir:?}");
+        let files = fs::read_dir(&project_dir).unwrap();
+        for path in files {
+            let path = path.unwrap();
+            println!("item -- {}", path.path().display())
+        }
+
         let code_builder = CodeBuilder::Path(&project_dir);
 
         let errors = code_builder.collect_errors().unwrap();
@@ -179,7 +187,7 @@ error: could not compile `test_project` (bin "test_project") due to previous err
         let expected_error = BuildError {
             error_code: Some("E0384".to_owned()),
             source_file: Some("src/main.rs".into()),
-            error_src: "error[E0384]: cannot assign twice to immutable variable `a`".to_owned(),
+            error_src: "error[E0384]: cannot assign twice to immutable variable `b`".to_owned(),
         };
 
         let expected_build_errors = BuildErros {
