@@ -1,4 +1,4 @@
-# ddebug-rs
+# ddebug-r
 A differential debugger for rust source code. The tools tries to minimize input rust code into it's minimally reproducable version throwing the same error as before. Rather than trying to remove characther by characther the tool relies on AST.
 
 ## Example
